@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UniPlan — Générateur d'emploi du temps</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<div class="board" id="app">
+
+  <!-- ===== HEADER / DEPARTURE BOARD ===== -->
+  <header class="board-header">
+    <div class="board-header__title">
+      <span class="board-header__mark">◱</span>
+      <div>
+        <h1>UniPlan</h1>
+        <p>Générateur d'emploi du temps — départements &amp; filières</p>
+      </div>
+    </div>
+    <div class="board-header__stats" id="headerStats">
+      <div class="flap"><span class="flap__num" id="statCourses">—</span><span class="flap__label">lignes</span></div>
+      <div class="flap"><span class="flap__num" id="statTeachers">—</span><span class="flap__label">enseignants</span></div>
+      <div class="flap"><span class="flap__num" id="statSessions">—</span><span class="flap__label">séances</span></div>
+      <div class="flap flap--warn"><span class="flap__num" id="statConflicts">—</span><span class="flap__label">à résoudre</span></div>
+    </div>
+  </header>
+
+  <!-- ===== NAV ===== -->
+  <nav class="tabs" id="mainTabs">
+    <button class="tab active" data-tab="import">1 · Import</button>
+    <button class="tab" data-tab="settings">2 · Paramètres</button>
+    <button class="tab" data-tab="reservations">3 · Réservations</button>
+    <button class="tab" data-tab="generate">4 · Génération</button>
+    <button class="tab" data-tab="results">5 · Emplois du temps</button>
+  </nav>
+
+  <main class="panels">
+
+    <!-- ===================== PANEL: IMPORT ===================== -->
+    <section class="panel active" id="panel-import">
+      <div class="card">
+        <h2>Charger le fichier d'affectation</h2>
+        <p class="muted">Déposez le fichier Excel des affectations (ex. <code>Affectation session d'automne_2021_2022.xlsx</code>). Colonnes attendues : SEMESTRE, Elément de module, Volume Horaire, Professeur, Nombre Heures, GROUPE, Nombre Groupes, Coordonnateurs de modules.</p>
+
+        <label class="dropzone" id="dropzone">
+          <input type="file" id="fileInput" accept=".xlsx,.xls" class="dropzone__input">
+          <span class="dropzone__icon">⇩</span>
+          <span class="dropzone__text">Cliquez ou glissez le fichier .xlsx ici</span>
+          <span class="dropzone__file" id="fileName"></span>
+        </label>
+
+        <div id="importSummary" class="import-summary" hidden>
+          <h3>Aperçu de l'import</h3>
+          <div class="table-wrap">
+            <table id="importTable" class="data-table"></table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== PANEL: SETTINGS ===================== -->
+    <section class="panel" id="panel-settings">
+      <div class="card">
+        <h2>Grille horaire</h2>
+        <div class="grid-2">
+          <div>
+            <label class="field-label">Jours de la semaine</label>
+            <div class="chip-toggle-row" id="daysToggle"></div>
+          </div>
+          <div>
+            <label class="field-label">Durée d'une période (heures)</label>
+            <input type="number" id="periodLength" value="2" min="1" max="4" step="0.5" class="input-sm">
+          </div>
+        </div>
+
+        <label class="field-label">Créneaux horaires (une ligne par période)</label>
+        <div id="periodsList" class="periods-list"></div>
+        <button class="btn btn-ghost btn-sm" id="addPeriodBtn">+ Ajouter une période</button>
+      </div>
+
+      <div class="card">
+        <h2>Contraintes enseignants</h2>
+        <div class="grid-2">
+          <div>
+            <label class="field-label">Volume horaire max / jour (par défaut)</label>
+            <select id="defaultMaxHoursDay" class="input-sm">
+              <option value="4">4 heures</option>
+              <option value="6" selected>6 heures</option>
+              <option value="8">8 heures</option>
+            </select>
+          </div>
+          <div>
+            <label class="field-label check-label">
+              <input type="checkbox" id="spreadSessions" checked>
+              Répartir les séances d'un même module sur des jours différents
+            </label>
+          </div>
+        </div>
+
+        <h3>Plafond horaire par enseignant (optionnel)</h3>
+        <p class="muted">Ajustez le plafond quotidien d'un enseignant en particulier (sinon la valeur par défaut ci-dessus s'applique). Le total hebdomadaire est calculé automatiquement depuis le fichier importé.</p>
+        <div class="table-wrap">
+          <table class="data-table" id="teacherCapsTable">
+            <thead><tr><th>Enseignant</th><th>Total / semaine (fichier)</th><th>Plafond / jour</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Salles</h2>
+        <p class="muted">Une salle par ligne. Laissez vide pour laisser UniPlan générer des salles virtuelles automatiquement.</p>
+        <textarea id="roomsInput" class="textarea" rows="4" placeholder="Amphi A&#10;Salle 101&#10;Salle 102"></textarea>
+      </div>
+
+      <button class="btn btn-primary" id="saveSettingsBtn">Enregistrer les paramètres</button>
+    </section>
+
+    <!-- ===================== PANEL: RESERVATIONS ===================== -->
+    <section class="panel" id="panel-reservations">
+      <div class="card">
+        <h2>Créneaux réservés</h2>
+        <p class="muted">Sélectionnez un enseignant puis choisissez le mode : <strong>Fixer</strong> (les séances de cet enseignant seront placées dans ces créneaux) ou <strong>Bloquer</strong> (l'enseignant est indisponible, ces créneaux seront exclus). Les créneaux déjà réservés par un autre enseignant restent visibles (hachurés) mais ne sont pas sélectionnables — impossible de réserver deux enseignants au même endroit.</p>
+
+        <label class="field-label">Mode</label>
+        <div class="chip-toggle-row" id="reservationModeToggle">
+          <button class="chip-toggle" data-mode="fix">Fixer les séances ici</button>
+          <button class="chip-toggle" data-mode="block">Bloquer (indisponibilité)</button>
+        </div>
+
+        <label class="field-label">Enseignant</label>
+        <select id="reservationTeacherSelect" class="input-md"></select>
+
+        <div class="legend-row">
+          <span class="legend-item"><span class="legend-swatch legend-swatch--free"></span> Disponible</span>
+          <span class="legend-item"><span class="legend-swatch legend-swatch--blocked"></span> <span id="legendBlockedLabel">Fixé pour cet enseignant</span></span>
+          <span class="legend-item"><span class="legend-swatch legend-swatch--other"></span> Réservé par un autre enseignant</span>
+        </div>
+
+        <div id="reservationGrid" class="schedule-grid-wrap"></div>
+
+        <div class="row-actions">
+          <button class="btn btn-ghost btn-sm" id="clearReservationsBtn">Effacer pour cet enseignant</button>
+          <button class="btn btn-ghost btn-sm" id="exportReservationsBtn">Exporter (JSON)</button>
+          <label class="btn btn-ghost btn-sm" for="importReservationsInput">Importer (JSON)</label>
+          <input type="file" id="importReservationsInput" accept=".json" hidden>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== PANEL: GENERATE ===================== -->
+    <section class="panel" id="panel-generate">
+      <div class="card">
+        <h2>Générer l'emploi du temps</h2>
+        <p class="muted">L'algorithme répartit chaque séance (module · enseignant · groupe) sur un jour, une période et une salle, en respectant les réservations, les plafonds horaires quotidiens, et en évitant tout conflit enseignant / groupe / salle.</p>
+        <div class="grid-2">
+          <div>
+            <label class="field-label">Nombre d'essais (recherche aléatoire)</label>
+            <input type="number" id="attemptsInput" value="40" min="1" max="200" class="input-sm">
+          </div>
+        </div>
+        <button class="btn btn-primary btn-lg" id="generateBtn">▶ Générer l'emploi du temps</button>
+        <div id="generateStatus" class="status-box" hidden></div>
+        <div id="conflictsBox" class="conflicts-box" hidden></div>
+      </div>
+    </section>
+
+    <!-- ===================== PANEL: RESULTS ===================== -->
+    <section class="panel" id="panel-results">
+      <div class="card">
+        <div class="results-toolbar">
+          <div class="subtabs" id="resultSubtabs">
+            <button class="subtab active" data-subtab="day">Par jour</button>
+            <button class="subtab" data-subtab="group">Par semestre / groupe</button>
+            <button class="subtab" data-subtab="teacher">Par enseignant</button>
+          </div>
+          <div class="results-toolbar__actions">
+            <select id="resultSelector" class="input-md"></select>
+            <button class="btn btn-ghost btn-sm" id="printBtn">🖨 Imprimer</button>
+          </div>
+        </div>
+        <div id="resultView" class="schedule-grid-wrap"></div>
+      </div>
+
+      <div class="card">
+        <h2>Export</h2>
+        <p class="muted">Téléchargez l'ensemble des emplois du temps générés (par jour, par groupe, par enseignant) dans un classeur Excel unique, ou récupérez le site complet en .zip pour le déployer ailleurs.</p>
+        <div class="row-actions">
+          <button class="btn btn-primary" id="exportExcelBtn">⬇ Exporter en Excel (.xlsx)</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="board-footer">UniPlan — outil de planification, exécuté entièrement dans votre navigateur. Aucune donnée n'est envoyée à un serveur.</footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="js/state.js"></script>
+<script src="js/parser.js"></script>
+<script src="js/reservations.js"></script>
+<script src="js/scheduler.js"></script>
+<script src="js/render.js"></script>
+<script src="js/export.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
