@@ -106,8 +106,18 @@ App.importReservationsJSON = function (file, cb) {
   reader.onload = e => {
     try {
       const plain = JSON.parse(e.target.result);
+      if (!plain || typeof plain !== "object" || Array.isArray(plain)) throw new Error("invalid");
       const out = {};
-      Object.keys(plain).forEach(t => out[t] = new Set(plain[t]));
+      Object.keys(plain).forEach(t => {
+        const v = plain[t];
+        if (!Array.isArray(v)) throw new Error("invalid");
+        const set = new Set();
+        v.forEach(item => {
+          if (typeof item !== "string" || item.indexOf("|") < 0) throw new Error("invalid");
+          set.add(item);
+        });
+        out[t] = set;
+      });
       App.state.reservations = out;
       App.saveReservations();
       if (cb) cb(true);

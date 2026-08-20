@@ -194,10 +194,12 @@ App.runSchedulerAttempt = function (tasks, settings) {
     });
   }
 
+  const countByTeacher = {};
+  tasks.forEach(t => { countByTeacher[t.teacher] = (countByTeacher[t.teacher] || 0) + 1; });
   const order = shuffle(tasks.filter(t => !fixedIds.has(t.id))).sort((a, b) => {
     // most constrained first: teachers with many weekly sessions, then random
-    const wa = tasks.filter(t => t.teacher === a.teacher).length;
-    const wb = tasks.filter(t => t.teacher === b.teacher).length;
+    const wa = countByTeacher[a.teacher];
+    const wb = countByTeacher[b.teacher];
     if (wb !== wa) return wb - wa;
     // within a teacher, keep the parts of the same module+group adjacent so
     // they naturally land as a 4h consecutive pair
@@ -312,10 +314,9 @@ App.runSchedulerAttempt = function (tasks, settings) {
     // contiguity first, then balance load across the week (fewest sessions
     // that day so far) as a tie-break; when a contiguous slot exists it is
     // always chosen over a gap-creating one.
+    candidates.forEach(c => { c.score = blockScore(c.day, c.pIdx); });
     candidates.sort((a, b) => {
-      const sa = blockScore(a.day, a.pIdx);
-      const sb = blockScore(b.day, b.pIdx);
-      if (sa !== sb) return sb - sa;
+      if (a.score !== b.score) return b.score - a.score;
       const ca = teacherDayCount[task.teacher + "|" + a.day] || 0;
       const cb = teacherDayCount[task.teacher + "|" + b.day] || 0;
       return ca - cb;
@@ -323,8 +324,8 @@ App.runSchedulerAttempt = function (tasks, settings) {
     // Always pick among the slots that score best (contiguous half-day
     // completions first, then 6h days, fresh days, and full days only when
     // nothing better exists) — never mixing a better score with a worse one.
-    const topScore = blockScore(candidates[0].day, candidates[0].pIdx);
-    const pool = candidates.filter(c => blockScore(c.day, c.pIdx) === topScore);
+    const topScore = candidates[0].score;
+    const pool = candidates.filter(c => c.score === topScore);
     const pick = pool[Math.floor(Math.random() * pool.length)];
 
     teacherBusy[pick.slotKey] = teacherBusy[pick.slotKey] || new Set();
@@ -627,28 +628,46 @@ function scheduleQuality(placed) {
   return q;
 }
 
+// Runs `attempts` randomized solver passes without blocking the UI thread:
+// attempts are processed in small batches, yielding to the browser between
+// batches so the status message paints and the page stays responsive.
+// Resolves with the best schedule found.
 App.generateSchedule = function (attempts) {
   const tasks = App.buildSessionTasks();
   const settings = App.state.settings;
-  attempts = attempts || 40;
+  attempts = Math.max(1, attempts || 40);
 
-  let best = null;
-  for (let i = 0; i < attempts; i++) {
-    const result = App.runSchedulerAttempt(tasks, settings);
-    const quality = scheduleQuality(result.placed);
-    if (!best ||
-        result.unplaced.length < best.unplaced.length ||
-        (result.unplaced.length === best.unplaced.length && quality < best.quality)) {
-      best = result;
-      best.quality = quality;
-      if (best.unplaced.length === 0 && best.quality === 0) break;
-    }
-  }
+  return new Promise(resolve => {
+    let best = null;
+    const chunk = Math.min(10, attempts);
 
-  App.state.schedule = {
-    sessions: best.placed,
-    conflicts: best.unplaced,
-    totalTasks: tasks.length
-  };
-  return App.state.schedule;
+    const runBatch = () => {
+      let n = Math.min(chunk, attempts);
+      attempts -= n;
+      while (n-- > 0) {
+        const result = App.runSchedulerAttempt(tasks, settings);
+        const quality = scheduleQuality(result.placed);
+        if (!best ||
+            result.unplaced.length < best.unplaced.length ||
+            (result.unplaced.length === best.unplaced.length && quality < best.quality)) {
+          best = result;
+          best.quality = quality;
+          if (best.unplaced.length === 0 && best.quality === 0) { attempts = 0; break; }
+        }
+      }
+      if (attempts > 0) {
+        setTimeout(runBatch, 0);
+      } else {
+        App.state.schedule = {
+          sessions: best.placed,
+          conflicts: best.unplaced,
+          totalTasks: tasks.length
+        };
+        resolve(App.state.schedule);
+      }
+    };
+
+    // defer the first batch so the "Génération en cours…" message can paint
+    setTimeout(runBatch, 0);
+  });
 };

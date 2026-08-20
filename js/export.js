@@ -5,7 +5,21 @@
    ========================================================= */
 
 function safeSheetName(name) {
-  return name.replace(/[\\/?*\[\]:]/g, " ").slice(0, 31) || "Feuille";
+  return name.replace(/[\\/?*\[\]:]/g, " ").replace(/\s+/g, " ").trim().slice(0, 31) || "Feuille";
+}
+
+// Excel forbids duplicate sheet names — appends a numeric suffix on collision
+// (e.g. two teachers whose names collide after truncation).
+const sheetNames = {};
+function uniqueSheetName(name) {
+  let base = safeSheetName(name);
+  let n = base, i = 2;
+  while (sheetNames[n] !== undefined) {
+    const suffix = " " + i++;
+    n = base.slice(0, 31 - suffix.length) + suffix;
+  }
+  sheetNames[n] = true;
+  return n;
 }
 
 function cellText(sessions) {
@@ -34,7 +48,7 @@ App.exportScheduleToExcel = function () {
       aoa.push(row);
     });
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    XLSX.utils.book_append_sheet(wb, ws, safeSheetName("Jour_" + day));
+    XLSX.utils.book_append_sheet(wb, ws, uniqueSheetName("Jour_" + day));
   });
 
   // ---- Sheet per semester/group (rows = days, cols = periods) ----
@@ -51,7 +65,7 @@ App.exportScheduleToExcel = function () {
       aoa.push(row);
     });
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    XLSX.utils.book_append_sheet(wb, ws, safeSheetName(g.semester + "_" + g.group));
+    XLSX.utils.book_append_sheet(wb, ws, uniqueSheetName(g.semester + "_" + g.group));
   });
 
   // ---- Sheet per teacher (rows = days, cols = periods) ----
@@ -68,7 +82,7 @@ App.exportScheduleToExcel = function () {
       aoa.push(row);
     });
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    XLSX.utils.book_append_sheet(wb, ws, safeSheetName("Prof_" + t.name.slice(0, 22)));
+    XLSX.utils.book_append_sheet(wb, ws, uniqueSheetName("Prof_" + t.name.slice(0, 22)));
   });
 
   // ---- Flat sessions sheet ----
@@ -77,14 +91,14 @@ App.exportScheduleToExcel = function () {
     s.semester, s.module, s.teacher, s.groupLabel, s.day, s.periodLabel, s.room, s.durationHours
   ]);
   const wsFlat = XLSX.utils.aoa_to_sheet([flatHeader, ...flatRows]);
-  XLSX.utils.book_append_sheet(wb, wsFlat, "Séances");
+  XLSX.utils.book_append_sheet(wb, wsFlat, uniqueSheetName("Séances"));
 
   // ---- Unplaced/conflicts sheet, if any ----
   if (schedule.conflicts.length) {
     const cHeader = ["Semestre", "Module", "Enseignant", "Groupes", "Séance"];
     const cRows = schedule.conflicts.map(c => [c.semester, c.module, c.teacher, c.groupLabel, c.partIndex + "/" + c.partTotal]);
     const wsC = XLSX.utils.aoa_to_sheet([cHeader, ...cRows]);
-    XLSX.utils.book_append_sheet(wb, wsC, "Non planifiées");
+    XLSX.utils.book_append_sheet(wb, wsC, uniqueSheetName("Non planifiées"));
   }
 
   XLSX.writeFile(wb, "emploi_du_temps_uniplan.xlsx");

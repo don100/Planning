@@ -54,7 +54,7 @@ document.addEventListener("DOMContentLoaded", () => {
   dropzone.addEventListener("drop", e => {
     e.preventDefault();
     dropzone.style.borderColor = "";
-    if (e.dataTransfer.files.length) { fileInput.files = e.dataTransfer.files; handleFile(e.dataTransfer.files[0]); }
+    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
   });
 
   /* ---------- settings panel ---------- */
@@ -130,14 +130,15 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("generateBtn").addEventListener("click", () => {
     if (!App.state.assignments.length) { alert("Importez d'abord un fichier Excel (onglet 1)."); return; }
     const statusBox = document.getElementById("generateStatus");
+    const generateBtn = document.getElementById("generateBtn");
     statusBox.hidden = false;
     statusBox.className = "status-box";
     statusBox.textContent = "Génération en cours…";
+    generateBtn.disabled = true;
 
-    // allow the "en cours" message to paint before the (synchronous) solve runs
-    setTimeout(() => {
-      const attempts = parseInt(document.getElementById("attemptsInput").value, 10) || 40;
-      const schedule = App.generateSchedule(attempts);
+    const attempts = parseInt(document.getElementById("attemptsInput").value, 10) || 40;
+    App.generateSchedule(attempts).then(schedule => {
+      generateBtn.disabled = false;
       App.renderHeaderStats();
       App.renderConflicts();
       App.populateResultSelector();
@@ -149,7 +150,7 @@ document.addEventListener("DOMContentLoaded", () => {
         statusBox.className = "status-box error";
         statusBox.textContent = `Emploi du temps généré — ${schedule.sessions.length} séances placées, ${schedule.conflicts.length} non planifiées (voir détail ci-dessous).`;
       }
-    }, 30);
+    });
   });
 
   /* ---------- results panel ---------- */

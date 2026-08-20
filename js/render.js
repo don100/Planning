@@ -16,27 +16,27 @@ App.renderImportSummary = function () {
 
   const rowsHtml = a.slice(0, 30).map(r => `
     <tr>
-      <td>${r.semester}</td>
-      <td>${r.module}</td>
-      <td>${r.teacher}</td>
-      <td>${r.weeklyHours} h</td>
-      <td>${r.groupLabel}</td>
-      <td class="muted">${r.coordinator || "—"}</td>
+      <td>${escapeHtml(r.semester)}</td>
+      <td>${escapeHtml(r.module)}</td>
+      <td>${escapeHtml(r.teacher)}</td>
+      <td>${escapeHtml(r.weeklyHours)} h</td>
+      <td>${escapeHtml(r.groupLabel)}</td>
+      <td class="muted">${escapeHtml(r.coordinator) || "—"}</td>
     </tr>`).join("");
 
   // Skipped rows highlighted in red
   const skippedHtml = skipped.slice(0, 30).map(r => `
     <tr class="row-error">
-      <td>${r.semester}</td>
-      <td>${r.module}</td>
-      <td>${r.teacher}</td>
-      <td>${r.hours}</td>
-      <td>${r.group}</td>
-      <td class="error-reason">Ligne ${r.rowIdx}: ${r.reason}</td>
+      <td>${escapeHtml(r.semester)}</td>
+      <td>${escapeHtml(r.module)}</td>
+      <td>${escapeHtml(r.teacher)}</td>
+      <td>${escapeHtml(r.hours)}</td>
+      <td>${escapeHtml(r.group)}</td>
+      <td class="error-reason">Ligne ${escapeHtml(r.rowIdx)}: ${escapeHtml(r.reason)}</td>
     </tr>`).join("");
 
-  const semesters = App.state.semesters.join(", ");
-  const groups = App.state.groupKeys.map(g => g.semester + "/" + g.group).join(", ");
+  const semesters = App.state.semesters.map(escapeHtml).join(", ");
+  const groups = App.state.groupKeys.map(g => escapeHtml(g.semester + "/" + g.group)).join(", ");
   let summary = `<p class="muted"><strong>${a.length}</strong> affectations · ` +
     `<strong>${App.state.teachers.length}</strong> enseignants · ` +
     `Semestres: ${semesters || "—"} · ` +
@@ -92,7 +92,7 @@ App.renderPeriodsList = function () {
   App.state.settings.periods.forEach((p, idx) => {
     const row = document.createElement("div");
     row.className = "period-row";
-    row.innerHTML = `<input type="text" value="${p.label}" data-idx="${idx}"><button type="button" class="rm" title="Supprimer">✕</button>`;
+    row.innerHTML = `<input type="text" value="${escapeHtml(p.label)}" data-idx="${idx}"><button type="button" class="rm" title="Supprimer">✕</button>`;
     row.querySelector("input").addEventListener("input", e => { p.label = e.target.value; });
     row.querySelector(".rm").addEventListener("click", () => {
       App.state.settings.periods.splice(idx, 1);
@@ -110,8 +110,8 @@ App.renderTeacherCapsTable = function () {
     const tr = document.createElement("tr");
     const current = App.state.settings.teacherCaps[t.name] || "";
     tr.innerHTML = `
-      <td>${t.name}</td>
-      <td class="muted">${t.weeklyHours} h</td>
+      <td>${escapeHtml(t.name)}</td>
+      <td class="muted">${escapeHtml(t.weeklyHours)} h</td>
       <td>
         <select class="input-sm">
           <option value="">Défaut (${App.state.settings.defaultMaxHoursDay} h)</option>
@@ -130,23 +130,36 @@ App.renderTeacherCapsTable = function () {
 };
 
 /* ---------- Results: selector population ---------- */
+const RESULT_ALL_TEACHERS = "__all_teachers__";
+const RESULT_ALL_GROUPS = "__all_groups__";
+
 App.populateResultSelector = function () {
   const sel = document.getElementById("resultSelector");
   const sub = App.state.resultView.subtab;
+  const prev = App.state.resultView.selection;
   sel.innerHTML = "";
 
-  let options = [];
-  if (sub === "day") options = App.state.settings.days.map(d => ({ value: d, label: d }));
-  if (sub === "group") options = App.state.groupKeys.map(g => ({ value: g.semester + "|" + g.group, label: g.semester + " — Groupe " + g.group }));
-  if (sub === "teacher") options = App.state.teachers.map(t => ({ value: t.name, label: t.name }));
-
-  options.forEach(o => {
+  const add = (value, label) => {
     const opt = document.createElement("option");
-    opt.value = o.value; opt.textContent = o.label;
+    opt.value = value;
+    opt.textContent = label;
     sel.appendChild(opt);
-  });
+  };
 
-  App.state.resultView.selection = options.length ? options[0].value : null;
+  if (sub === "day") {
+    App.state.settings.days.forEach(d => add(d, d));
+  } else if (sub === "group") {
+    add(RESULT_ALL_GROUPS, "Tous les groupes (une page)");
+    App.state.groupKeys.forEach(g => add(g.semester + "|" + g.group, g.semester + " — Groupe " + g.group));
+  } else if (sub === "teacher") {
+    add(RESULT_ALL_TEACHERS, "Tous les enseignants (une page)");
+    App.state.teachers.forEach(t => add(t.name, t.name));
+  }
+
+  const values = Array.from(sel.options).map(o => o.value);
+  // keep the previous selection when it still makes sense for this subtab
+  sel.value = values.includes(prev) ? prev : (values[0] || "");
+  App.state.resultView.selection = sel.value;
   App.renderResultView();
 };
 
@@ -161,67 +174,104 @@ App.renderResultView = function () {
   if (!schedule) { wrap.innerHTML = "<p class='muted'>Générez d'abord l'emploi du temps (onglet 4).</p>"; return; }
   if (!sel) { wrap.innerHTML = "<p class='muted'>Rien à afficher.</p>"; return; }
 
-  let sessionsFilter, rowMode;
-  if (sub === "day") {
-    sessionsFilter = s => s.day === sel;
-    rowMode = "room"; // rows = rooms, cols = periods (only for the single selected day)
-  } else if (sub === "group") {
-    const [sem, grp] = sel.split("|");
-    sessionsFilter = s => s.semester === sem && s.groups.includes(grp);
-    rowMode = "day"; // rows = days, cols = periods
-  } else {
-    sessionsFilter = s => s.teacher === sel;
-    rowMode = "day";
+  const sessions = schedule.sessions;
+  const slotIndex = indexBySlot(sessions);
+
+  // "view all" modes: every teacher / every group, each with its own table,
+  // stacked on a single page.
+  if (sub === "teacher" && sel === RESULT_ALL_TEACHERS) {
+    renderStackedViews(wrap, "teacher", sessions, slotIndex, settings);
+    return;
+  }
+  if (sub === "group" && sel === RESULT_ALL_GROUPS) {
+    renderStackedViews(wrap, "group", sessions, slotIndex, settings);
+    return;
   }
 
-  const sessions = schedule.sessions.filter(sessionsFilter);
-
-  const table = document.createElement("table");
-  table.className = "schedule-grid";
-
-  if (rowMode === "room") {
-    const rooms = Array.from(new Set(sessions.map(s => s.room))).sort();
-    const roomList = rooms.length ? rooms : ["—"];
-    const thead = document.createElement("thead");
-    thead.innerHTML = "<tr><th class='corner'>Salle</th>" + settings.periods.map(p => `<th>${p.label}</th>`).join("") + "</tr>";
-    table.appendChild(thead);
-    const tbody = document.createElement("tbody");
-    roomList.forEach(room => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<th>${room}</th>`;
-      settings.periods.forEach((p, pIdx) => {
-        const td = document.createElement("td");
-        td.className = "slot";
-        const here = sessions.filter(s => s.room === room && s.periodIdx === pIdx);
-        td.innerHTML = here.map(sessionChipHtml).join("");
-        tr.appendChild(td);
-      });
-      tbody.appendChild(tr);
-    });
-    table.appendChild(tbody);
+  let rowLabel, rowItems, match;
+  if (sub === "day") {
+    const daySessions = sessions.filter(s => s.day === sel);
+    const rooms = Array.from(new Set(daySessions.map(s => s.room))).sort();
+    rowLabel = "Salle";
+    rowItems = rooms.length ? rooms : ["—"];
+    match = (room, pIdx) => daySessions.filter(s => s.room === room && s.periodIdx === pIdx);
+  } else if (sub === "group") {
+    const [sem, grp] = sel.split("|");
+    rowLabel = "Jour";
+    rowItems = settings.days;
+    match = (day, pIdx) => (slotIndex[day + "|" + pIdx] || []).filter(s => s.semester === sem && s.groups.includes(grp));
   } else {
-    const thead = document.createElement("thead");
-    thead.innerHTML = "<tr><th class='corner'>Jour</th>" + settings.periods.map(p => `<th>${p.label}</th>`).join("") + "</tr>";
-    table.appendChild(thead);
-    const tbody = document.createElement("tbody");
-    settings.days.forEach(day => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<th>${day}</th>`;
-      settings.periods.forEach((p, pIdx) => {
-        const td = document.createElement("td");
-        td.className = "slot";
-        const here = sessions.filter(s => s.day === day && s.periodIdx === pIdx);
-        td.innerHTML = here.map(sessionChipHtml).join("");
-        tr.appendChild(td);
-      });
-      tbody.appendChild(tr);
-    });
-    table.appendChild(tbody);
+    rowLabel = "Jour";
+    rowItems = settings.days;
+    match = (day, pIdx) => (slotIndex[day + "|" + pIdx] || []).filter(s => s.teacher === sel);
   }
 
   wrap.innerHTML = "";
-  wrap.appendChild(table);
+  wrap.appendChild(buildScheduleTable(rowLabel, rowItems, settings.periods, match));
 };
+
+// sessions indexed by "day|periodIdx" for O(1) cell lookups
+function indexBySlot(sessions) {
+  const idx = {};
+  sessions.forEach(s => {
+    const k = s.day + "|" + s.periodIdx;
+    (idx[k] = idx[k] || []).push(s);
+  });
+  return idx;
+}
+
+function buildScheduleTable(rowLabel, rowItems, periods, matchFn) {
+  const table = document.createElement("table");
+  table.className = "schedule-grid";
+  const thead = document.createElement("thead");
+  thead.innerHTML = "<tr><th class='corner'>" + escapeHtml(rowLabel) + "</th>" +
+    periods.map(p => "<th>" + escapeHtml(p.label) + "</th>").join("") + "</tr>";
+  table.appendChild(thead);
+  const tbody = document.createElement("tbody");
+  rowItems.forEach(row => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<th>" + escapeHtml(row) + "</th>";
+    periods.forEach((p, pIdx) => {
+      const td = document.createElement("td");
+      td.className = "slot";
+      td.innerHTML = matchFn(row, pIdx).map(sessionChipHtml).join("");
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  return table;
+}
+
+function renderStackedViews(wrap, kind, sessions, slotIndex, settings) {
+  const stack = document.createElement("div");
+  stack.className = "schedule-stack";
+
+  let entities, title, filter;
+  if (kind === "teacher") {
+    entities = App.state.teachers;
+    title = t => "Enseignant — " + t.name;
+    filter = (s, t) => s.teacher === t.name;
+  } else {
+    entities = App.state.groupKeys;
+    title = g => g.semester + " — Groupe " + g.group;
+    filter = (s, g) => s.semester === g.semester && s.groups.includes(g.group);
+  }
+
+  entities.forEach(e => {
+    const block = document.createElement("section");
+    block.className = "schedule-stack__block";
+    const h = document.createElement("h3");
+    h.textContent = title(e);
+    block.appendChild(h);
+    const match = (day, pIdx) => (slotIndex[day + "|" + pIdx] || []).filter(s => filter(s, e));
+    block.appendChild(buildScheduleTable("Jour", settings.days, settings.periods, match));
+    stack.appendChild(block);
+  });
+
+  wrap.innerHTML = "";
+  wrap.appendChild(stack);
+}
 
 function sessionChipHtml(s) {
   return `<div class="session-chip">
